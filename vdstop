@@ -1,0 +1,384 @@
+#!/usr/bin/perl
+# (c) Sergey Redin sergey@redin.info, for 1gb.ru
+use warnings;
+use strict;
+#use lib qw{/home/hostsrv/common/tools/perllib/};
+use Getopt::Std;
+use Fcntl 'SEEK_SET';
+use Term::ReadKey;
+use Number::Bytes::Human 'format_bytes';
+use Term::ANSIColor;
+use POSIX qw/sysconf _SC_PAGESIZE/;
+my $PAGESIZE = sysconf(_SC_PAGESIZE);
+my %layouts = (
+    default => [ qw/d-cpu kmemsize privvm-mem phys-mem numproc numfile d-ubcfailcnt/ ],
+    cpu     => [ qw/d-cpu d-user d-nice d-system cpu user nice system numproc/ ],
+    io      => [ qw/d-read d-write d-dirty d-cancel d-missed read write dirty cancel missed/ ],
+    dio     => [ qw/d-read d-write d-dirty d-cancel d-missed
+                        d-vfs_reads d-vfs_read_chars d-vfs_writes d-vfs_write_chars / ],
+    vfsio   => [ qw/d-vfs_reads d-vfs_read_chars d-vfs_writes d-vfs_write_chars
+                        vfs_reads vfs_read_chars vfs_writes vfs_write_chars / ],
+    mem     => [ qw/numproc locked-mem privvm-mem shm-mem phys-mem oomguar-mem
+                        dcachesize tcpsndbuf tcprcvbuf dgramrcvbuf othersockbuf/ ],
+    vmaux   => [ qw/unused_privvmpages tmpfs_respages swap_pages swapin unmap/ ],
+    traf    => [ qw/d-out_bytes d-in_bytes d-out_pckts d-in_pckts out_bytes in_bytes out_pckts in_pckts/ ],
+);
+my %layout_keys = (
+    c       => "cpu",
+    f       => "default",
+    d       => "dio",
+    i       => "io",
+    v       => "vfsio",
+    m       => "mem",
+    u       => "vmaux",
+    t       => "traf",
+);
+
+my $first_time = 1;
+die unless $^O eq "linux";
+sub sgetwinsz() {
+    # from http://www2.zdo.com/articles/creating_text_mode_user_interfaces_with_perl.php
+	my ($rep_key, $rep, @rep_decoded);
+	no warnings;
+	if( ioctl(STDIN, 0x005413, $rep) )
+	{
+		$rep_key = "ssss"; # 4 short
+		return unpack($rep_key,$rep); # 0 row 1 col    
+	}
+	die;
+}
+my ($LINES, $COLUMNS) = sgetwinsz;
+
+my ($lineformat, $totalwidth, @fieldwidths);
+$SIG{WINCH} = sub {
+    ($LINES, $COLUMNS) = sgetwinsz;
+    die "The screen is too small for all fields\n" if $totalwidth >= $COLUMNS;
+    $first_time = 1;
+    show();
+};
+
+my ($sortdirection, $sortfieldnum, $current_layout, @dispfields);
+$sortdirection = -1;
+$sortfieldnum = 0; # veid
+sub set_field_widths() {
+    ($lineformat, $totalwidth) = ("", 0);
+    @fieldwidths = ();
+    foreach my $field (@dispfields) {
+        my $width = 2 + length $field;
+        $width = 9 if $width < 9;
+        $totalwidth += $width;
+        push @fieldwidths, $width;
+        $lineformat .= "%${width}s";
+    }
+    die "The screen is too small for all fields\n" if $totalwidth >= $COLUMNS;
+    $lineformat .= "\n";
+}
+set_field_widths;
+sub set_layout($) {
+    $current_layout = shift || "default";
+    exists( $layouts{$current_layout} ) or die "No such layout: $current_layout\n";
+    $sortdirection = -1;
+    $sortfieldnum = 0; # veid
+    @dispfields = ( "veid", @{$layouts{$current_layout}} );
+    set_field_widths;
+}
+
+my %opts;
+getopts 'ho:d:l:0bs:', \%opts;
+$opts{d} ||= 2;
+if( exists $opts{o} ) {
+    @dispfields = ( "veid", split(/,/, $opts{o}) );
+    set_field_widths;
+} else {
+    set_layout $opts{l};
+}
+if( defined $opts{s} ) {
+    my $s = $opts{s};
+    if( $s =~ /^\d+$/ ) {
+        $sortfieldnum = $s;
+        die "Sort field number $sortfieldnum is too great, we do not have so many fields\n"
+            if $sortfieldnum > $#dispfields;
+    } else {
+        undef $sortfieldnum;
+        foreach my $i ( 0 .. $#dispfields ) {
+            if(  $s eq $dispfields[$i] ) {
+                $sortfieldnum = $i;
+                last;
+            }
+        }
+        die "No such field: $s\n" unless defined $sortfieldnum;
+    }
+}
+
+my %ip2veid = ();
+open VEINFO, "<", "/proc/vz/veinfo" or die $!;
+while(<VEINFO>) {
+    s/^\s+//;
+    my ($veid, $classid, $numproc, @vds_ips) = split /\s+/;
+    foreach my $ip (@vds_ips) {
+        $ip2veid{$ip} = $veid;
+    }
+}
+close VEINFO or die $!;
+my $ip_re = qr/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/;
+
+my %bc_fh= ();
+sub get_bc_fh($$) {
+    my ($veid, $bc_file) = @_;
+    $bc_fh{$veid} ||= {};
+    if( not exists $bc_fh{$veid}{$bc_file} ) {
+        open $bc_fh{$veid}{$bc_file}, "/proc/bc/$veid/$bc_file" or die "open $bc_file for $veid: $!";
+    }
+    return $bc_fh{$veid}{$bc_file};
+}
+open UBC, "/proc/user_beancounters" or die $!;
+open VESTAT, "/proc/vz/vestat" or die $!;
+open LOADAVG, "/proc/loadavg" or die $!;
+
+my $counters = {};
+my $old_counters = {};
+sub mkdiff($@) {
+    my $veid = shift;
+    foreach my $name (@_) {
+        $counters->{$veid} ||= {};
+        $old_counters->{$veid} ||= {};
+        $counters->{$veid}{"d-$name"} =
+            ( exists($counters->{$veid}{$name}) && exists($old_counters->{$veid}{$name}) ) ?
+                $counters->{$veid}{$name} - $old_counters->{$veid}{$name} : "N/A";
+    }
+}
+sub min($$) {
+    my ($a, $b) = @_;
+    $a < $b ? $a : $b;
+}
+my @ubc_value_prefixes = ("", qw/m- b- l- f-/); # held, maxheld, barrier, limit and failcnt
+sub show() {
+    $counters = {};
+    seek UBC, 0, SEEK_SET or die $!;
+    <UBC> =~ /^Version: 2\.5$/ or die "Bad UBC version";
+    <UBC> =~ /^\s*uid\s+resource\s+held\s+maxheld\s+barrier\s+limit\s+failcnt\s*$/ or die "Bad UBC header line";
+    my $cur_ubc_veid = undef;
+    while(<UBC>) {
+        /^\s*((\d+):\s+)?(\w+)\s+((\d+\s+){4}\d+)$/ or die "Bad line from UBC: $_";
+        my ($new_veid, $name) = ($2, $3);
+        my @values = split /\s+/, $4;
+        if( defined $new_veid ) {
+            mkdiff($cur_ubc_veid, "ubcfailcnt") if defined $cur_ubc_veid; # for the previous veid
+            $cur_ubc_veid = $new_veid;
+            $counters->{$cur_ubc_veid} = { veid => $cur_ubc_veid, ubcfailcnt => 0 };
+        }
+        die unless defined $cur_ubc_veid;
+        $counters->{$cur_ubc_veid}{"$ubc_value_prefixes[$_]$name"} = $values[$_] foreach (0 .. $#values);
+        if( $name =~ /^(.+)pages$/ ) {
+            my $mem_name = "$1-mem";
+            $counters->{$cur_ubc_veid}{"$ubc_value_prefixes[$_]$mem_name"} = $PAGESIZE * $values[$_] foreach (0 .. $#values);
+        }
+        $counters->{$cur_ubc_veid}{ubcfailcnt} += $values[4];
+        mkdiff($cur_ubc_veid, $name);
+    }
+    mkdiff($cur_ubc_veid, "ubcfailcnt"); # for the last veid
+
+    seek VESTAT, 0, SEEK_SET or die $!;
+    <VESTAT> =~ /^Version: 2\.2\s*$/ or die "Bad VESTAT version";
+    <VESTAT> =~ /^\s*VEID\s+user\s+nice\s+system\s/ or die "Bad VESTAT header line";
+    while(<VESTAT>) {
+        s/^\s*//;
+        /^[\d\s]+$/ or die "Bad line from VESTAT: $_";
+        my @fields = split /\s+/;
+        my $veid = $fields[0];
+        exists $counters->{$veid} || die "vestat for veid $veid found but it does not exist in UBC";
+        exists $counters->{$veid}{$_} and die "vestat key $_ already exists in UBC for veid $veid"
+            foreach qw/user nice system cpu/;
+        $counters->{$veid}{user} = $fields[1];
+        $counters->{$veid}{nice} = $fields[2];
+        $counters->{$veid}{system} = $fields[3];
+        $counters->{$veid}{cpu} = $fields[1] + $fields[2] + $fields[3];
+        mkdiff($veid, qw/user nice system cpu/);
+    }
+    foreach my $veid (keys %$counters) {
+        unless( exists $counters->{$veid}{cpu} ) {
+            foreach my $name (qw/user nice system cpu/) {
+                $counters->{$veid}{$name} = $counters->{$veid}{"d-$name"} = "N/A";
+            }
+        }
+    }
+
+    foreach my $veid (keys %$counters) {
+        foreach my $bc_file ( qw/ioacct vmaux/ ) {
+            my $fh = get_bc_fh($veid, $bc_file);
+            seek $fh, 0, SEEK_SET or die $!;
+            while(<$fh>) {
+                /^\s*(\w+)\s+(\d+)\s*$/ or die "bad line from $bc_file for veid $veid: $_";
+                my ($name, $value) = ($1, $2);
+                $counters->{$veid}{$name} = $value;
+                mkdiff($veid, $name);
+            }
+        }
+    }
+
+    open IPT, "iptables-save -t filter -c |" or die $!;
+    while(<IPT>) {
+        #[1149:87658] -A FORWARD -s 81.176.226.201/32 -o eth0 -j ACCEPT
+        #[1104:94803] -A FORWARD -d 81.176.226.201/32 -i eth0 -j ACCEPT
+        if(      /^\[(\d+):(\d+)\] -A FORWARD -d ($ip_re)\/32 -i eth\d+ -j ACCEPT\s*$/ ) {
+            my $veid = $ip2veid{$3} or next;
+            $counters->{$veid}{in_pckts} = $1;
+            $counters->{$veid}{in_bytes} = $2;
+            mkdiff($veid, qw/in_pckts in_bytes/);
+        } elsif( /^\[(\d+):(\d+)\] -A FORWARD -s ($ip_re)\/32 -o eth\d+ -j ACCEPT\s*$/ ) {
+            my $veid = $ip2veid{$3} or next;
+            $counters->{$veid}{out_pckts} = $1;
+            $counters->{$veid}{out_bytes} = $2;
+            mkdiff($veid, qw/out_pckts out_bytes/);
+        }
+    }
+    close IPT or die $!;
+    foreach my $veid (keys %$counters) {
+        if( not exists $counters->{$veid}{in_pckts} ) {
+            $counters->{$veid}{in_pckts} = $counters->{$veid}{in_bytes} = 0;
+            mkdiff($veid, qw/in_pckts in_bytes/);
+        }
+        if( not exists $counters->{$veid}{out_pckts} ) {
+            $counters->{$veid}{out_pckts} = $counters->{$veid}{out_bytes} = 0;
+            mkdiff($veid, qw/out_pckts out_bytes/);
+        }
+    }
+
+    if( exists $opts{h} ) {
+        my %fields = ();
+        foreach my $veid (keys %$counters) {
+            foreach my $field (keys %{$counters->{$veid}}) {
+                $fields{$field} = 1;
+            }
+        }
+        quit( "vdstop
+
+Usage:
+    $0 -h
+    $0 [-b] [-0] [-d <seconds>] [-o <field1>,<field2>,... | -l <layout>] [-s <number>|<field>]
+
+Options:
+    -h
+        Print this help
+    -b
+        Do not use ANSI colors
+    -0
+        Show VE0 (hardware node)
+    -d <seconds>
+        Refresh interval (default is 1 second)
+    -o <field1>,<field2>,...
+        Output fields (except the first field which is always veid)
+    -l <layout>
+        Use one of predefined output layouts (default is '-l default')
+    -s <number>|<field>
+        Sort by field with given number or name
+
+Predefined layouts:\n" .
+#map{ "\n    $_\n        " . join(",", @{$layouts{$_}}) } keys(%layouts)
+join( "\n", map { "    $_\n        " . join(",", @{$layouts{$_}}) } keys(%layouts) )
+. "
+
+All available fields:
+    " . join( ",", sort {$a cmp $b} keys %fields ) . "
+
+Current output fields:
+    " . join( ",", @dispfields[1 .. $#dispfields] ) . "
+
+Hit 'h' while vdstop is running to get help on interactive commands.\n" );
+    }
+
+    exists($counters->{0}{$_}) or die "bad field name: $_" foreach @dispfields;
+    delete $counters->{0} unless $opts{0};
+    my $sortfield = $dispfields[$sortfieldnum];
+    my @sorted_veids;
+    {
+        no warnings;
+        @sorted_veids = sort {
+            0 == $a ? -1 : 0 == $b ? 1 : $sortdirection * ( $counters->{$a}{$sortfield} <=> $counters->{$b}{$sortfield} )
+        } keys %$counters;
+    }
+
+    my $show_veids = $LINES - 4;
+    my @veids2show = @sorted_veids[0 .. min($show_veids-1, @sorted_veids-1)];
+    my $dirsym = $sortdirection > 0 ? "-" : "^";
+    seek LOADAVG, 0, SEEK_SET or die $!;
+    my $la = <LOADAVG>;
+    chomp $la;
+    my $header1 = "vdstop: press 'h' for help. " . localtime() . ", delay $opts{d} sec.";
+    my $header2 = "LA: $la. " . ( $current_layout ? "Layout $current_layout" : "Custom layout" ) . ", sorted by $dirsym$sortfield.";
+    die "The screen is too small for the status line.\n" if $COLUMNS < length($header1) or $COLUMNS < length($header2);
+    my $out = "$header1\n$header2\n";
+    foreach my $i (0 .. $#dispfields) {
+        my $field = $dispfields[$i];
+        my $string = sprintf "%$fieldwidths[$i]s", ( $field eq $sortfield ? "$dirsym$field" : $field );
+        $out .= ( $field eq $sortfield and not $opts{b} ) ? colored($string, $sortdirection > 0 ? "green" : "green" ) : $string;
+    }
+    $out .= "\n";
+    foreach my $veid (@veids2show) {
+        no warnings;
+        my $line = sprintf $lineformat, map {
+            ( $_ =~ /(-mem|size|buf)$/ or $counters->{$veid}{$_} >= 1e7 ) ? format_bytes($counters->{$veid}{$_}) : $counters->{$veid}{$_}
+        } @dispfields;
+        $out .= ( $veid or $opts{b} ) ? $line : colored( $line, "underline" );
+    }
+    if( @veids2show < $show_veids) {
+        $out .= ( (" " x $totalwidth) . "\n" ) x ( $show_veids - @veids2show );
+    }
+    if( $first_time ) {
+        print "\e[H\e[2J$out";
+        $first_time = 0;
+    } else {
+        print "\e[H$out";
+    }
+    $old_counters = $counters;
+}
+ReadMode(3);
+sub quit {
+    ReadMode(0);
+    print STDERR @_ if @_;
+    exit;
+}
+$SIG{INT} = \&quit;
+$SIG{__DIE__} = \&quit;
+for(;;) {
+    show;
+    if( defined( my $key = ReadKey $opts{d} ) ) {
+        if( $key eq "q" ) {
+            quit;
+        } elsif( $key eq "," ) {
+            if( $sortfieldnum > 0 ) { --$sortfieldnum } else { $sortfieldnum = $#dispfields }
+            $first_time = 1;
+        } elsif( $key eq "." ) {
+            if( $sortfieldnum < $#dispfields ) { ++$sortfieldnum } else { $sortfieldnum = 0 } ;
+            $first_time = 1;
+        } elsif( $key eq "-" ) {
+            $sortdirection = -$sortdirection;
+        } elsif( $key eq " " or $key eq "p" ) {
+            ReadKey 0;
+        } elsif( exists $layout_keys{$key} ) {
+            set_layout $layout_keys{$key};
+            $first_time = 1;
+        } elsif( $key eq "h" ) {
+            print "\e[H\e[2Jvdstop
+
+Help for interactive commands - $0
+
+  'q'           Quit
+  ','           Move sort field left
+  '.'           Move sort field right
+  '-'           Toggle sort direction asc/desc (VE0 is always on top anyway)
+  Space or 'p'  Pause
+  'h'           Print this help
+
+Layout switching keys
+
+" . join( "\n", map { "  '$_'           $layout_keys{$_}" } keys %layout_keys ) . "
+
+Run '$0 -h' for command line help
+
+Press any key to continue ";
+            $first_time = 1;
+            ReadKey 0;
+        }
+    }
+}

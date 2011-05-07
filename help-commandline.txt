@@ -1,0 +1,47 @@
+vdstop
+
+Usage:
+    vdstop -h
+    vdstop [-b] [-0] [-d <seconds>] [-o <field1>,<field2>,... | -l <layout>] [-s <number>|<field>]
+
+Options:
+    -h
+        Print this help
+    -b
+        Do not use ANSI colors
+    -0
+        Show VE0 (hardware node)
+    -d <seconds>
+        Refresh interval (default is 1 second)
+    -o <field1>,<field2>,...
+        Output fields (except the first field which is always veid)
+    -l <layout>
+        Use one of predefined output layouts (default is '-l default')
+    -s <number>|<field>
+        Sort by field with given number or name
+
+Predefined layouts:
+    vfsio
+        d-vfs_reads,d-vfs_read_chars,d-vfs_writes,d-vfs_write_chars,vfs_reads,vfs_read_chars,vfs_writes,vfs_write_chars
+    dio
+        d-read,d-write,d-dirty,d-cancel,d-missed,d-vfs_reads,d-vfs_read_chars,d-vfs_writes,d-vfs_write_chars
+    cpu
+        d-cpu,d-user,d-nice,d-system,cpu,user,nice,system,numproc
+    default
+        d-cpu,kmemsize,privvm-mem,phys-mem,numproc,numfile,d-ubcfailcnt
+    vmaux
+        unused_privvmpages,tmpfs_respages,swap_pages,swapin,unmap
+    mem
+        numproc,locked-mem,privvm-mem,shm-mem,phys-mem,oomguar-mem,dcachesize,tcpsndbuf,tcprcvbuf,dgramrcvbuf,othersockbuf
+    io
+        d-read,d-write,d-dirty,d-cancel,d-missed,read,write,dirty,cancel,missed
+    traf
+        d-out_bytes,d-in_bytes,d-out_pckts,d-in_pckts,out_bytes,in_bytes,out_pckts,in_pckts
+
+All available fields:
+    b-dcachesize,b-dgramrcvbuf,b-dummy,b-kmemsize,b-locked-mem,b-lockedpages,b-numfile,b-numflock,b-numiptent,b-numothersock,b-numproc,b-numpty,b-numsiginfo,b-numtcpsock,b-oomguar-mem,b-oomguarpages,b-othersockbuf,b-phys-mem,b-physpages,b-privvm-mem,b-privvmpages,b-shm-mem,b-shmpages,b-tcprcvbuf,b-tcpsndbuf,b-vmguar-mem,b-vmguarpages,cancel,cpu,d-cancel,d-cpu,d-dcachesize,d-dgramrcvbuf,d-dirty,d-dummy,d-fdatasyncs_active,d-fdatasyncs_total,d-fsyncs_active,d-fsyncs_total,d-in_bytes,d-in_pckts,d-io_pbs,d-kmemsize,d-lockedpages,d-missed,d-nice,d-numfile,d-numflock,d-numiptent,d-numothersock,d-numproc,d-numpty,d-numsiginfo,d-numtcpsock,d-oomguarpages,d-othersockbuf,d-out_bytes,d-out_pckts,d-physpages,d-privvmpages,d-range_syncs_active,d-range_syncs_total,d-read,d-shmpages,d-swap_pages,d-swapin,d-syncs_active,d-syncs_total,d-system,d-tcprcvbuf,d-tcpsndbuf,d-tmpfs_respages,d-ubcfailcnt,d-unmap,d-unused_privvmpages,d-user,d-vfs_read_chars,d-vfs_reads,d-vfs_write_chars,d-vfs_writes,d-vmguarpages,d-write,dcachesize,dgramrcvbuf,dirty,dummy,f-dcachesize,f-dgramrcvbuf,f-dummy,f-kmemsize,f-locked-mem,f-lockedpages,f-numfile,f-numflock,f-numiptent,f-numothersock,f-numproc,f-numpty,f-numsiginfo,f-numtcpsock,f-oomguar-mem,f-oomguarpages,f-othersockbuf,f-phys-mem,f-physpages,f-privvm-mem,f-privvmpages,f-shm-mem,f-shmpages,f-tcprcvbuf,f-tcpsndbuf,f-vmguar-mem,f-vmguarpages,fdatasyncs_active,fdatasyncs_total,fsyncs_active,fsyncs_total,in_bytes,in_pckts,io_pbs,kmemsize,l-dcachesize,l-dgramrcvbuf,l-dummy,l-kmemsize,l-locked-mem,l-lockedpages,l-numfile,l-numflock,l-numiptent,l-numothersock,l-numproc,l-numpty,l-numsiginfo,l-numtcpsock,l-oomguar-mem,l-oomguarpages,l-othersockbuf,l-phys-mem,l-physpages,l-privvm-mem,l-privvmpages,l-shm-mem,l-shmpages,l-tcprcvbuf,l-tcpsndbuf,l-vmguar-mem,l-vmguarpages,locked-mem,lockedpages,m-dcachesize,m-dgramrcvbuf,m-dummy,m-kmemsize,m-locked-mem,m-lockedpages,m-numfile,m-numflock,m-numiptent,m-numothersock,m-numproc,m-numpty,m-numsiginfo,m-numtcpsock,m-oomguar-mem,m-oomguarpages,m-othersockbuf,m-phys-mem,m-physpages,m-privvm-mem,m-privvmpages,m-shm-mem,m-shmpages,m-tcprcvbuf,m-tcpsndbuf,m-vmguar-mem,m-vmguarpages,missed,nice,numfile,numflock,numiptent,numothersock,numproc,numpty,numsiginfo,numtcpsock,oomguar-mem,oomguarpages,othersockbuf,out_bytes,out_pckts,phys-mem,physpages,privvm-mem,privvmpages,range_syncs_active,range_syncs_total,read,shm-mem,shmpages,swap_pages,swapin,syncs_active,syncs_total,system,tcprcvbuf,tcpsndbuf,tmpfs_respages,ubcfailcnt,unmap,unused_privvmpages,user,veid,vfs_read_chars,vfs_reads,vfs_write_chars,vfs_writes,vmguar-mem,vmguarpages,write
+
+Current output fields:
+    d-cpu,kmemsize,privvm-mem,phys-mem,numproc,numfile,d-ubcfailcnt
+
+Hit 'h' while vdstop is running to get help on interactive commands.

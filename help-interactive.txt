@@ -1,0 +1,23 @@
+vdstop
+
+Help for interactive commands - vdstop
+
+  'q'           Quit
+  ','           Move sort field left
+  '.'           Move sort field right
+  '-'           Toggle sort direction asc/desc (VE0 is always on top anyway)
+  Space or 'p'  Pause
+  'h'           Print this help
+
+Layout switching keys
+
+  'm'           mem
+  'v'           vfsio
+  'd'           dio
+  'c'           cpu
+  'u'           vmaux
+  'f'           default
+  'i'           io
+  't'           traf
+
+Run 'vdstop -h' for command line help
