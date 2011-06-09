@@ -84,7 +84,7 @@ sub set_layout($) {
 }
 
 my %opts;
-getopts 'ho:d:l:0bs:', \%opts;
+getopts 'ho:d:l:0bs:H:', \%opts;
 $opts{d} ||= 2;
 if( exists $opts{o} ) {
     @dispfields = ( "veid", split(/,/, $opts{o}) );
@@ -107,6 +107,15 @@ if( defined $opts{s} ) {
             }
         }
         die "No such field: $s\n" unless defined $sortfieldnum;
+    }
+}
+my %highlight = ();
+if( defined $opts{H} ) {
+    my @colors = ( qw/red green yellow blue magenta/ );
+    $opts{H} =~ /^\d+(,\d+)*$/ or die "Bad arg to -H option: $opts{H}\n";
+    my @veids = split /,/, $opts{H};
+    foreach my $i ( 0 .. @veids - 1 ) {
+        $highlight{$veids[$i]} = $colors[ $i % @colors ];
     }
 }
 
@@ -255,7 +264,7 @@ sub show() {
 
 Usage:
     $0 -h
-    $0 [-b] [-0] [-d <seconds>] [-o <field1>,<field2>,... | -l <layout>] [-s <number>|<field>]
+    $0 [-b] [-0] [-d <seconds>] [-o <field1>,<field2>,... | -l <layout>] [-s <number>|<field>] [-H <VEID1>,<VEID2>...]
 
 Options:
     -h
@@ -272,6 +281,8 @@ Options:
         Use one of predefined output layouts (default is '-l default')
     -s <number>|<field>
         Sort by field with given number or name
+    -H <VEID1>,<VEID2>...
+        Highlight VEIDs
 
 Predefined layouts:\n" .
 #map{ "\n    $_\n        " . join(",", @{$layouts{$_}}) } keys(%layouts)
@@ -319,7 +330,7 @@ Hit 'h' while vdstop is running to get help on interactive commands.\n" );
         my $line = sprintf $lineformat, map {
             ( $_ =~ /(-mem|size|buf)$/ or $counters->{$veid}{$_} >= 1e7 ) ? format_bytes($counters->{$veid}{$_}) : $counters->{$veid}{$_}
         } @dispfields;
-        $out .= ( $veid or $opts{b} ) ? $line : colored( $line, "underline" );
+        $out .= $opts{b} ? $line : !$veid ? colored( $line, "underline" ) : $highlight{$veid} ? colored( $line, $highlight{$veid} ) : $line;
     }
     if( @veids2show < $show_veids) {
         $out .= ( (" " x $totalwidth) . "\n" ) x ( $show_veids - @veids2show );
