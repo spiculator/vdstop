@@ -84,8 +84,12 @@ sub set_layout($) {
 }
 
 my %opts;
-getopts 'ho:d:l:0bs:H:', \%opts;
+getopts 'ho:d:l:0bs:tH:', \%opts;
 $opts{d} ||= 2;
+if( exists $opts{t} ) {
+    $opts{l} = "traf";
+    $opts{s} = "d-out_bytes";
+}
 if( exists $opts{o} ) {
     @dispfields = ( "veid", split(/,/, $opts{o}) );
     set_field_widths;
@@ -225,31 +229,53 @@ sub show() {
         }
     }
 
-    open IPT, "iptables-save -t filter -c |" or die $!;
-    while(<IPT>) {
-        #[1149:87658] -A FORWARD -s 81.176.226.201/32 -o eth0 -j ACCEPT
-        #[1104:94803] -A FORWARD -d 81.176.226.201/32 -i eth0 -j ACCEPT
-        if(      /^\[(\d+):(\d+)\] -A FORWARD -d ($ip_re)\/32 -i eth\d+ -j ACCEPT\s*$/ ) {
-            my $veid = $ip2veid{$3} or next;
-            $counters->{$veid}{in_pckts} = $1;
-            $counters->{$veid}{in_bytes} = $2;
-            mkdiff($veid, qw/in_pckts in_bytes/);
-        } elsif( /^\[(\d+):(\d+)\] -A FORWARD -s ($ip_re)\/32 -o eth\d+ -j ACCEPT\s*$/ ) {
-            my $veid = $ip2veid{$3} or next;
-            $counters->{$veid}{out_pckts} = $1;
-            $counters->{$veid}{out_bytes} = $2;
-            mkdiff($veid, qw/out_pckts out_bytes/);
+    if( $opts{t} ) {
+        foreach my $veid (keys %$counters) {
+            my $cmd = "cat /proc/net/dev";
+            $cmd = "vzctl exec $veid $cmd" if $veid;
+            open CMD, "$cmd 2>/dev/null |" or goto TRAF_OUT;
+            my $ok = undef;
+            while(<CMD>) {
+                #venet0:38371210  253265    0    0    0     0          0         0 18840610  244433    0    0    0     0       0          0
+                if( /^\s*venet0\s*:\s*(\d+)\s+(\d+)(\s+\d+){6}\s+(\d+)\s+(\d+)(\s+\d+){6}\s*$/ ) {
+                    $counters->{$veid}{in_bytes} = $1;
+                    $counters->{$veid}{in_pckts} = $2;
+                    $counters->{$veid}{out_bytes} = $4;
+                    $counters->{$veid}{out_pckts} = $5;
+                    mkdiff($veid, qw/in_bytes in_pckts out_bytes out_pckts/);
+                    goto TRAF_OUT;
+                }
+            }
+            TRAF_OUT:
+            close CMD;
         }
-    }
-    close IPT or die $!;
-    foreach my $veid (keys %$counters) {
-        if( not exists $counters->{$veid}{in_pckts} ) {
-            $counters->{$veid}{in_pckts} = $counters->{$veid}{in_bytes} = 0;
-            mkdiff($veid, qw/in_pckts in_bytes/);
+    } else {
+        open IPT, "iptables-save -t filter -c |" or die $!;
+        while(<IPT>) {
+            #[1149:87658] -A FORWARD -s 81.176.226.201/32 -o eth0 -j ACCEPT
+            #[1104:94803] -A FORWARD -d 81.176.226.201/32 -i eth0 -j ACCEPT
+            if(      /^\[(\d+):(\d+)\] -A FORWARD -d ($ip_re)\/32 -i eth\d+ -j ACCEPT\s*$/ ) {
+                my $veid = $ip2veid{$3} or next;
+                $counters->{$veid}{in_pckts} = $1;
+                $counters->{$veid}{in_bytes} = $2;
+                mkdiff($veid, qw/in_pckts in_bytes/);
+            } elsif( /^\[(\d+):(\d+)\] -A FORWARD -s ($ip_re)\/32 -o eth\d+ -j ACCEPT\s*$/ ) {
+                my $veid = $ip2veid{$3} or next;
+                $counters->{$veid}{out_pckts} = $1;
+                $counters->{$veid}{out_bytes} = $2;
+                mkdiff($veid, qw/out_pckts out_bytes/);
+            }
         }
-        if( not exists $counters->{$veid}{out_pckts} ) {
-            $counters->{$veid}{out_pckts} = $counters->{$veid}{out_bytes} = 0;
-            mkdiff($veid, qw/out_pckts out_bytes/);
+        close IPT or die $!;
+        foreach my $veid (keys %$counters) {
+            if( not exists $counters->{$veid}{in_pckts} ) {
+                $counters->{$veid}{in_pckts} = $counters->{$veid}{in_bytes} = 0;
+                mkdiff($veid, qw/in_pckts in_bytes/);
+            }
+            if( not exists $counters->{$veid}{out_pckts} ) {
+                $counters->{$veid}{out_pckts} = $counters->{$veid}{out_bytes} = 0;
+                mkdiff($veid, qw/out_pckts out_bytes/);
+            }
         }
     }
 
@@ -264,7 +290,7 @@ sub show() {
 
 Usage:
     $0 -h
-    $0 [-b] [-0] [-d <seconds>] [-o <field1>,<field2>,... | -l <layout>] [-s <number>|<field>] [-H <VEID1>,<VEID2>...]
+    $0 [-b] [-0] [-d <seconds>] [-o <field1>,<field2>,... | -l <layout>] [-s <number>|<field>] [-t] [-H <VEID1>,<VEID2>...]
 
 Options:
     -h
@@ -281,6 +307,9 @@ Options:
         Use one of predefined output layouts (default is '-l default')
     -s <number>|<field>
         Sort by field with given number or name
+    -t
+        Count traffic with `vzctl exec <VEID> cat /proc/net/dev` (this takes time)
+        This options also implies -l traf -s d-out_bytes
     -H <VEID1>,<VEID2>...
         Highlight VEIDs
 
