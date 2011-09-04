@@ -83,7 +83,7 @@ sub set_layout($) {
 }
 
 my %opts;
-getopts 'ho:d:l:0bs:tH:', \%opts;
+getopts 'hLo:d:l:0bs:tH:', \%opts;
 $opts{d} ||= 2;
 if( exists $opts{t} ) {
     $opts{l} = "traf";
@@ -279,21 +279,18 @@ sub show() {
     }
 
     if( exists $opts{h} ) {
-        my %fields = ();
-        foreach my $veid (keys %$counters) {
-            foreach my $field (keys %{$counters->{$veid}}) {
-                $fields{$field} = 1;
-            }
-        }
         quit( "vdstop
 
 Usage:
     $0 -h
+    $0 -L
     $0 [-b] [-0] [-d <seconds>] [-o <field1>,<field2>,... | -l <layout>] [-s <number>|<field>] [-t] [-H <VEID1>,<VEID2>...]
 
 Options:
     -h
         Print this help
+    -L
+        List predefined layouts and all available output fields
     -b
         Do not use ANSI colors
     -0
@@ -312,18 +309,21 @@ Options:
     -H <VEID1>,<VEID2>...
         Highlight VEIDs
 
-Predefined layouts:\n" .
-#map{ "\n    $_\n        " . join(",", @{$layouts{$_}}) } keys(%layouts)
-join( "\n", map { "    $_\n        " . join(",", @{$layouts{$_}}) } keys(%layouts) )
-. "
-
-All available fields:
-    " . join( ",", sort {$a cmp $b} keys %fields ) . "
-
-Current output fields:
-    " . join( ",", @dispfields[1 .. $#dispfields] ) . "
-
 Hit 'h' while vdstop is running to get help on interactive commands.\n" );
+    } elsif( exists $opts{L} ) {
+        my %fields = ();
+        foreach my $veid (keys %$counters) {
+            foreach my $field (keys %{$counters->{$veid}}) {
+                $fields{$field} = 1;
+            }
+        }
+        quit(
+	    "Predefined layouts:\n" .
+            join( "\n", map { "    $_\n        " . join(",", @{$layouts{$_}}) } keys(%layouts) ) .
+	    "\n\nAll available fields:\n    " .
+	    join( ",", sort {$a cmp $b} keys %fields ) .
+	    "\n"
+        );
     }
 
     exists($counters->{0}{$_}) or die "bad field name: $_" foreach @dispfields;
