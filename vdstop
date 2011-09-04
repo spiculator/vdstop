@@ -2,7 +2,6 @@
 # (c) Sergey Redin sergey@redin.info, for 1gb.ru
 use warnings;
 use strict;
-#use lib qw{/home/hostsrv/common/tools/perllib/};
 use Getopt::Std;
 use Fcntl 'SEEK_SET';
 use Term::ReadKey;
