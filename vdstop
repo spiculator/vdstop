@@ -2,6 +2,7 @@
 # (c) Sergey Redin sergey@redin.info, for 1gb.ru
 use warnings;
 use strict;
+use Pod::Usage;
 use Getopt::Std;
 use Fcntl 'SEEK_SET';
 use Term::ReadKey;
@@ -279,37 +280,8 @@ sub show() {
     }
 
     if( exists $opts{h} ) {
-        quit( "vdstop
-
-Usage:
-    $0 -h
-    $0 -L
-    $0 [-b] [-0] [-d <seconds>] [-o <field1>,<field2>,... | -l <layout>] [-s <number>|<field>] [-t] [-H <VEID1>,<VEID2>...]
-
-Options:
-    -h
-        Print this help
-    -L
-        List predefined layouts and all available output fields
-    -b
-        Do not use ANSI colors
-    -0
-        Show VE0 (hardware node)
-    -d <seconds>
-        Refresh interval (default is 1 second)
-    -o <field1>,<field2>,...
-        Output fields (except the first field which is always veid)
-    -l <layout>
-        Use one of predefined output layouts (default is '-l default')
-    -s <number>|<field>
-        Sort by field with given number or name
-    -t
-        Count traffic with `vzctl exec <VEID> cat /proc/net/dev` (this takes time)
-        This options also implies -l traf -s d-out_bytes
-    -H <VEID1>,<VEID2>...
-        Highlight VEIDs
-
-Hit 'h' while vdstop is running to get help on interactive commands.\n" );
+        ReadMode(0);
+        pod2usage( -exitval => 1, -verbose => 2, -noperldoc => 1 );
     } elsif( exists $opts{L} ) {
         my %fields = ();
         foreach my $veid (keys %$counters) {
@@ -421,3 +393,73 @@ Press any key to continue ";
         }
     }
 }
+
+__END__
+
+=head1 NAME
+
+vdstop - interactive tool to monitor per-VDS activity (cpu, memory usage, IO) for OpenVZ
+
+=head1 SYNOPSIS
+
+    # print help and exit
+    % vdstop -h
+
+    # print all available layouts and output fields
+    % vdstop -L
+
+    # run vdstop
+    % vdstop [-b] [-0] [-d <seconds>] [-o <field1>,<field2>,... | -l <layout>] [-s <number>|<field>] [-t] [-H <VEID1>,<VEID2>...]
+
+=head1 OPTIONS
+
+=over 4
+
+=item -h
+
+Print this help
+
+=item -L
+
+List predefined layouts and all available output fields
+
+=item -b
+
+Do not use ANSI colors
+
+=item -0
+
+Show VE0 (hardware node)
+
+=item -d <seconds>
+
+Refresh interval (default is 1 second)
+
+=item -o <field1>,<field2>,...
+
+Output fields (except the first field which is always veid)
+
+=item -l <layout>
+
+Use one of predefined output layouts (default is '-l default')
+
+=item -s <number>|<field>
+
+Sort by field with given number or name
+
+=item -t
+
+Count traffic with `vzctl exec <VEID> cat /proc/net/dev` (this takes time).
+This options also implies -l traf -s d-out_bytes
+
+=item -H <VEID1>,<VEID2>...
+
+Highlight VEIDs
+
+=back
+
+=head1 HOTKEYS
+
+Hit 'h' while vdstop is running to get help on interactive commands
+
+=cut
