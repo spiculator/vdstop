@@ -58,7 +58,7 @@ $SIG{WINCH} = sub {
 
 my ($sortdirection, $sortfieldnum, $current_layout, @dispfields);
 $sortdirection = -1;
-$sortfieldnum = 0; # veid
+$sortfieldnum = 1; # the first field after veid
 sub set_field_widths() {
     ($lineformat, $totalwidth) = ("", 0);
     @fieldwidths = ();
@@ -77,7 +77,7 @@ sub set_layout($) {
     $current_layout = shift || "default";
     exists( $layouts{$current_layout} ) or die "No such layout: $current_layout\n";
     $sortdirection = -1;
-    $sortfieldnum = 0; # veid
+    $sortfieldnum = 1; # the first field after veid
     @dispfields = ( "veid", @{$layouts{$current_layout}} );
     set_field_widths;
 }
