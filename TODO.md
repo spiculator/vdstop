@@ -6,3 +6,4 @@ vdstop TODO
 * do not die on small terminals
 * skip unknown fields intead of dying
 * altscreen
+* cpan
